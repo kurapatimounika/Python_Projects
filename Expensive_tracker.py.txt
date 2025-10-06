@@ -1,0 +1,157 @@
+import sqlite3
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+import csv
+from datetime import datetime
+
+# --- Database setup ---
+conn = sqlite3.connect("expenses.db")
+c = conn.cursor()
+c.execute("""
+CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    category TEXT NOT NULL,
+    amount REAL NOT NULL,
+    description TEXT
+)
+""")
+conn.commit()
+
+# --- Functions ---
+def add_expense():
+    date = entry_date.get()
+    category = entry_category.get()
+    amount = entry_amount.get()
+    desc = entry_desc.get()
+
+    if not date or not category or not amount:
+        messagebox.showwarning("Input Error", "Date, Category and Amount are required")
+        return
+
+    try:
+        float(amount)
+    except:
+        messagebox.showwarning("Input Error", "Amount must be a number")
+        return
+
+    c.execute("INSERT INTO expenses (date, category, amount, description) VALUES (?,?,?,?)",
+              (date, category, amount, desc))
+    conn.commit()
+    clear_entries()
+    load_data()
+
+def delete_expense():
+    selected = tree.selection()
+    if not selected:
+        return
+    item = tree.item(selected[0])
+    expense_id = item['values'][0]
+    c.execute("DELETE FROM expenses WHERE id=?", (expense_id,))
+    conn.commit()
+    load_data()
+
+def edit_expense():
+    selected = tree.selection()
+    if not selected:
+        messagebox.showwarning("Select record", "Please select a record to edit")
+        return
+
+    item = tree.item(selected[0])
+    expense_id = item['values'][0]
+
+    date = entry_date.get()
+    category = entry_category.get()
+    amount = entry_amount.get()
+    desc = entry_desc.get()
+
+    if not date or not category or not amount:
+        messagebox.showwarning("Input Error", "Date, Category and Amount are required")
+        return
+
+    c.execute("UPDATE expenses SET date=?, category=?, amount=?, description=? WHERE id=?",
+              (date, category, amount, desc, expense_id))
+    conn.commit()
+    clear_entries()
+    load_data()
+
+def load_data():
+    for i in tree.get_children():
+        tree.delete(i)
+    c.execute("SELECT * FROM expenses ORDER BY date DESC")
+    for row in c.fetchall():
+        tree.insert("", "end", values=row)
+
+def clear_entries():
+    entry_date.delete(0, tk.END)
+    entry_category.set("")
+    entry_amount.delete(0, tk.END)
+    entry_desc.delete(0, tk.END)
+
+def show_monthly_summary():
+    month = datetime.now().strftime("%Y-%m")
+    c.execute("SELECT category, SUM(amount) FROM expenses WHERE date LIKE ? GROUP BY category", (f"{month}%",))
+    summary = c.fetchall()
+    if not summary:
+        messagebox.showinfo("Summary", "No expenses for this month")
+        return
+    result = "\n".join([f"{cat}: {amt}" for cat, amt in summary])
+    messagebox.showinfo("Monthly Summary", f"Month: {month}\n\n{result}")
+
+def export_csv():
+    file_path = filedialog.asksaveasfilename(defaultextension=".csv",
+                                             filetypes=[("CSV files","*.csv")])
+    if not file_path:
+        return
+    c.execute("SELECT * FROM expenses")
+    rows = c.fetchall()
+    with open(file_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["ID","Date","Category","Amount","Description"])
+        writer.writerows(rows)
+    messagebox.showinfo("Export", "Data exported successfully!")
+
+# --- GUI ---
+root = tk.Tk()
+root.title("Personal Expense Tracker")
+root.geometry("800x500")
+
+frame_input = tk.Frame(root)
+frame_input.pack(pady=10)
+
+tk.Label(frame_input, text="Date (YYYY-MM-DD):").grid(row=0, column=0)
+entry_date = tk.Entry(frame_input)
+entry_date.grid(row=0, column=1)
+
+tk.Label(frame_input, text="Category:").grid(row=0, column=2)
+entry_category = ttk.Combobox(frame_input, values=["Food","Transport","Shopping","Bills","Other"])
+entry_category.grid(row=0, column=3)
+
+tk.Label(frame_input, text="Amount:").grid(row=1, column=0)
+entry_amount = tk.Entry(frame_input)
+entry_amount.grid(row=1, column=1)
+
+tk.Label(frame_input, text="Description:").grid(row=1, column=2)
+entry_desc = tk.Entry(frame_input)
+entry_desc.grid(row=1, column=3)
+
+btn_frame = tk.Frame(root)
+btn_frame.pack(pady=5)
+
+tk.Button(btn_frame, text="Add Expense", command=add_expense).grid(row=0, column=0, padx=5)
+tk.Button(btn_frame, text="Edit Selected", command=edit_expense).grid(row=0, column=1, padx=5)
+tk.Button(btn_frame, text="Delete Selected", command=delete_expense).grid(row=0, column=2, padx=5)
+tk.Button(btn_frame, text="Monthly Summary", command=show_monthly_summary).grid(row=0, column=3, padx=5)
+tk.Button(btn_frame, text="Export CSV", command=export_csv).grid(row=0, column=4, padx=5)
+
+tree = ttk.Treeview(root, columns=("ID","Date","Category","Amount","Description"), show="headings")
+tree.heading("ID", text="ID")
+tree.heading("Date", text="Date")
+tree.heading("Category", text="Category")
+tree.heading("Amount", text="Amount")
+tree.heading("Description", text="Description")
+tree.pack(fill=tk.BOTH, expand=True)
+
+load_data()
+
+root.mainloop()
